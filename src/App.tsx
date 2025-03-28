@@ -108,6 +108,47 @@ function buildHierarchy(data: any[]): Category[] {
   // Update the root category's ponderation as the sum of its subcategories
   rootCategory.ponderation = rootCategory.subcategories.reduce((sum, sub) => sum + sub.ponderation, 0);
 
+  // Third pass: calculate indices as ponderated means
+  const calculatePonderatedIndices = (category: Category) => {
+  if (category.subcategories.length > 0) {
+    const weightedSum = (key: keyof Category['indices']) =>
+      category.subcategories.reduce(
+        (sum, sub) => sub.indices[key] !== 0 ? sum + sub.indices[key] * sub.ponderation : sum,
+        0
+      );
+    const validPonderation = (key: keyof Category['indices']) =>
+      category.subcategories.reduce(
+        (sum, sub) => sub.indices[key] !== 0 ? sum + sub.ponderation : sum,
+        0
+      );
+
+    category.indices.feb2024 = validPonderation('feb2024') > 0 ? weightedSum('feb2024') / validPonderation('feb2024') : category.indices.feb2024;
+    category.indices.nov2024 = validPonderation('nov2024') > 0 ? weightedSum('nov2024') / validPonderation('nov2024') : category.indices.nov2024;
+    category.indices.dec2024 = validPonderation('dec2024') > 0 ? weightedSum('dec2024') / validPonderation('dec2024') : category.indices.dec2024;
+    category.indices.jan2025 = validPonderation('jan2025') > 0 ? weightedSum('jan2025') / validPonderation('jan2025') : category.indices.jan2025;
+    category.indices.feb2025 = validPonderation('feb2025') > 0 ? weightedSum('feb2025') / validPonderation('feb2025') : category.indices.feb2025;
+
+    // Recalculate variation percentages
+    if (category.indices.feb2024 !== 0) {
+      category.indices.yearly_var_percent =
+        ((category.indices.feb2025 - category.indices.feb2024) / category.indices.feb2024) * 100;
+    }
+    if (category.indices.jan2025 !== 0) {
+      category.indices.monthly_var_percent =
+        ((category.indices.feb2025 - category.indices.jan2025) / category.indices.jan2025) * 100;
+    }
+    if (category.indices.nov2024 !== 0) {
+      category.indices.trimester_var_percent =
+        ((category.indices.feb2025 - category.indices.nov2024) / category.indices.nov2024) * 100;
+    }
+  }
+
+  // Recursively calculate for subcategories
+  category.subcategories.forEach(calculatePonderatedIndices);
+};
+
+  calculatePonderatedIndices(rootCategory);
+
   // Add the root category to the hierarchy
   hierarchy.push(rootCategory);
 
@@ -156,7 +197,7 @@ function CategoryRow({
               onChange={(e) => onPonderationChange(category.number, parseFloat(e.target.value))}
               onBlur={() => console.log('clicked away')}
               className="w-24 px-2 py-1 border rounded text-right"
-              step="0.1"
+              step="1"
             />
           </div>
           <span className="text-right text-sm">{category.indices.feb2024.toFixed(1)}</span>
@@ -209,24 +250,62 @@ function App() {
       const updateCategory = (cats: Category[]): Category[] => {
         return cats.map(cat => {
           if (cat.number === number) {
-            // Update the category's value and adjust its children
+            // Update the category's ponderation
             const totalChildrenPonderation = cat.subcategories.reduce((sum, sub) => sum + sub.ponderation, 0);
   
             if (totalChildrenPonderation > 0) {
-              // Adjust children to maintain proportions
+              // Adjust children and their descendants to maintain proportions
               const scaleFactor = value / totalChildrenPonderation;
-              const updatedSubcategories = cat.subcategories.map(sub => ({
-                ...sub,
-                ponderation: sub.ponderation * scaleFactor,
-              }));
+              const updateSubcategories = (subcategories: Category[], scaleFactor: number): Category[] => {
+                return subcategories.map(sub => ({
+                  ...sub,
+                  ponderation: sub.ponderation * scaleFactor,
+                  subcategories: updateSubcategories(sub.subcategories, scaleFactor),
+                }));
+              };
+  
+              const updatedSubcategories = updateSubcategories(cat.subcategories, scaleFactor);
+  
+              // Recalculate indices as ponderated means of non-zero subcategories
+              const weightedSum = (key: keyof Category['indices']) =>
+                updatedSubcategories.reduce(
+                  (sum, sub) => sub.indices[key] !== 0 ? sum + sub.indices[key] * sub.ponderation : sum,
+                  0
+                );
+              const validPonderation = (key: keyof Category['indices']) =>
+                updatedSubcategories.reduce(
+                  (sum, sub) => sub.indices[key] !== 0 ? sum + sub.ponderation : sum,
+                  0
+                );
+  
               return {
                 ...cat,
                 ponderation: value,
                 subcategories: updatedSubcategories,
+                indices: {
+                  feb2024: validPonderation('feb2024') > 0 ? weightedSum('feb2024') / validPonderation('feb2024') : cat.indices.feb2024,
+                  nov2024: validPonderation('nov2024') > 0 ? weightedSum('nov2024') / validPonderation('nov2024') : cat.indices.nov2024,
+                  dec2024: validPonderation('dec2024') > 0 ? weightedSum('dec2024') / validPonderation('dec2024') : cat.indices.dec2024,
+                  jan2025: validPonderation('jan2025') > 0 ? weightedSum('jan2025') / validPonderation('jan2025') : cat.indices.jan2025,
+                  feb2025: validPonderation('feb2025') > 0 ? weightedSum('feb2025') / validPonderation('feb2025') : cat.indices.feb2025,
+                  monthly_var_percent:
+                    cat.indices.jan2025 !== 0
+                      ? ((cat.indices.feb2025 - cat.indices.jan2025) / cat.indices.jan2025) * 100
+                      : 0,
+                  yearly_var_percent:
+                    cat.indices.feb2024 !== 0
+                      ? ((cat.indices.feb2025 - cat.indices.feb2024) / cat.indices.feb2024) * 100
+                      : 0,
+                  trimester_var_percent:
+                    cat.indices.nov2024 !== 0
+                      ? ((cat.indices.feb2025 - cat.indices.nov2024) / cat.indices.nov2024) * 100
+                      : 0,
+                },
               };
             }
   
-            return { ...cat, ponderation: value }; // No children, just update the value
+            // No children, just update the ponderation
+            return { ...cat, ponderation: value };
           }
   
           if (cat.subcategories.length > 0) {
@@ -236,10 +315,41 @@ function App() {
             // Update the parent's ponderation to be the sum of its children
             const updatedPonderation = updatedSubcategories.reduce((sum, sub) => sum + sub.ponderation, 0);
   
+            // Recalculate indices as ponderated means of non-zero subcategories
+            const weightedSum = (key: keyof Category['indices']) =>
+              updatedSubcategories.reduce(
+                (sum, sub) => sub.indices[key] !== 0 ? sum + sub.indices[key] * sub.ponderation : sum,
+                0
+              );
+            const validPonderation = (key: keyof Category['indices']) =>
+              updatedSubcategories.reduce(
+                (sum, sub) => sub.indices[key] !== 0 ? sum + sub.ponderation : sum,
+                0
+              );
+  
             return {
               ...cat,
               ponderation: updatedPonderation,
               subcategories: updatedSubcategories,
+              indices: {
+                feb2024: validPonderation('feb2024') > 0 ? weightedSum('feb2024') / validPonderation('feb2024') : cat.indices.feb2024,
+                nov2024: validPonderation('nov2024') > 0 ? weightedSum('nov2024') / validPonderation('nov2024') : cat.indices.nov2024,
+                dec2024: validPonderation('dec2024') > 0 ? weightedSum('dec2024') / validPonderation('dec2024') : cat.indices.dec2024,
+                jan2025: validPonderation('jan2025') > 0 ? weightedSum('jan2025') / validPonderation('jan2025') : cat.indices.jan2025,
+                feb2025: validPonderation('feb2025') > 0 ? weightedSum('feb2025') / validPonderation('feb2025') : cat.indices.feb2025,
+                monthly_var_percent:
+                  cat.indices.jan2025 !== 0
+                    ? ((cat.indices.feb2025 - cat.indices.jan2025) / cat.indices.jan2025) * 100
+                    : 0,
+                yearly_var_percent:
+                  cat.indices.feb2024 !== 0
+                    ? ((cat.indices.feb2025 - cat.indices.feb2024) / cat.indices.feb2024) * 100
+                    : 0,
+                trimester_var_percent:
+                  cat.indices.nov2024 !== 0
+                    ? ((cat.indices.feb2025 - cat.indices.nov2024) / cat.indices.nov2024) * 100
+                    : 0,
+              },
             };
           }
   
