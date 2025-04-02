@@ -214,6 +214,40 @@ function CategoryRow({
   );
 }
 
+import { saveAs } from 'file-saver'; // Install file-saver if not already installed
+
+const exportToCSV = (categories: Category[]) => {
+  const flattenCategories = (categories: Category[], parentNumber = ''): any[] => {
+    return categories.flatMap(category => {
+      const row = {
+        Numéro: category.number,
+        Regroupement: category.name,
+        Pondération: category.ponderation,
+        'Indice février 2024': category.indices.feb2024,
+        'Indice novembre 2024': category.indices.nov2024,
+        'Indice décembre 2024': category.indices.dec2024,
+        'Indice janvier 2025': category.indices.jan2025,
+        'Indice février 2025': category.indices.feb2025,
+        'Variation mensuelle (%)': category.indices.monthly_var_percent,
+        'Variation trimestrielle (%)': category.indices.trimester_var_percent,
+        'Variation annuelle (%)': category.indices.yearly_var_percent,
+      };
+
+      return [row, ...flattenCategories(category.subcategories, category.number)];
+    });
+  };
+
+  const flattenedData = flattenCategories(categories);
+
+  // Convert to CSV
+  const csv = Papa.unparse(flattenedData);
+
+  // Create a Blob and trigger download
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  saveAs(blob, 'output.csv');
+};
+
+
 function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
@@ -383,9 +417,14 @@ function App() {
           isExpanded={expandedCategories.has(category.number)}
         />
         {expandedCategories.has(category.number) && category.subcategories.length > 0 && (
-          <div className="border-l border-gray-200">
+            <div
+            className={`border-l border-gray-200`}
+            style={{
+              backgroundColor: `rgba(0, 0, 0, ${0.10 * (category.level + 1)})`, // Adjust gray level based on category level
+            }}
+            >
             {renderCategories(category.subcategories)}
-          </div>
+            </div>
         )}
       </React.Fragment>
     ));
@@ -396,7 +435,13 @@ function App() {
       <div className="max-w-12xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
         <div className="p-6">
           <h1 className="text-2xl font-bold mb-6">Catégories et Pondérations</h1>
-
+          {/* Export Button */}
+          <button
+            onClick={() => exportToCSV(categories)}
+            className="mb-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            Export to CSV
+          </button>
           {/* Display the total ponderation */}
           
 
